@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FactuPro</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#F3F6F4;color:#0F2A24;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px}
+#app{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+button,input,select{font:inherit}
+header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 10px}
+.logo{font-size:20px;font-weight:700;letter-spacing:-.3px}
+main{flex:1;padding:6px 20px 90px;display:flex;flex-direction:column;gap:14px}
+h1{margin:0;font-size:24px;letter-spacing:-.4px}
+h2{margin:0;font-size:17px}
+.muted{color:#4A5C56;font-size:14px}
+.card{background:#fff;border-radius:16px;padding:16px}
+.hero{background:#0B6B4F;color:#fff;border-radius:20px;padding:22px}
+.hero .big{font-size:34px;font-weight:700;letter-spacing:-1px;margin:4px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.num{font-size:20px;font-weight:700}
+.late{color:#B42318}
+label{display:block;font-size:14px;font-weight:500;margin-bottom:6px}
+input,select{width:100%;height:48px;border:1.5px solid #C9D6D1;border-radius:12px;padding:0 14px;background:#fff;color:#0F2A24}
+.field{margin-bottom:12px}
+.btn{min-height:48px;border:none;border-radius:14px;background:#0B6B4F;color:#fff;font-weight:700;padding:0 18px;cursor:pointer;width:100%}
+.btn.small{min-height:44px;width:auto;flex:1;font-size:14px;padding:0 10px}
+.btn.alt{background:#E3F3EC;color:#0B4A38}
+.btn.wa{background:#128C4A}
+.link{background:none;border:none;color:#4A5C56;min-height:44px;padding:0 8px;cursor:pointer;font-size:13px;text-decoration:underline}
+.row{display:flex;gap:8px;align-items:center}
+.between{justify-content:space-between}
+.chip{font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;white-space:nowrap}
+.chip.paid{background:#E3F3EC;color:#0B6B4F}
+.chip.wait{background:#FFF1D6;color:#7A4300}
+.chip.late{background:#FDE8E6;color:#B42318}
+.filters{display:flex;gap:8px;flex-wrap:wrap}
+.f{min-height:40px;border:1.5px solid #C9D6D1;background:#fff;border-radius:99px;padding:0 14px;font-weight:700;font-size:14px;color:#2B403A;cursor:pointer}
+.f.on{background:#E3F3EC;border-color:#0B6B4F;color:#0B4A38}
+.preview{background:#F3F6F4;border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.45;white-space:pre-wrap}
+.err{background:#FDE8E6;color:#B42318;border-radius:12px;padding:12px 14px;font-size:14px}
+.ok{background:#E3F3EC;color:#0B4A38;border-radius:12px;padding:12px 14px;font-size:14px}
+nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;border-top:1px solid #DCE6E1;display:grid;grid-template-columns:repeat(4,1fr);padding:6px 4px 10px}
+nav button{border:none;background:none;min-height:52px;font-size:12px;font-weight:700;color:#4A5C56;cursor:pointer}
+nav button.on{color:#0B6B4F}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ====== À REMPLIR (Supabase > Project Settings > API) ======
+const SUPABASE_URL = 'https://pgqjihathwjxfzxefrnc.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_fsbN4nDkvh0J_-voDl4YuQ_Qlup9wjQ';
+const DEFAULT_COUNTRY_CODE = '237'; // Cameroun. Côte d'Ivoire: 225, Sénégal: 221
+// ===========================================================
+
+const $app = document.getElementById('app');
+const configured = !SUPABASE_URL.startsWith('COLLE_') && !SUPABASE_ANON_KEY.startsWith('COLLE_');
+const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const S = { user: null, tab: 'home', invoices: [], filter: 'all', created: null, error: '', info: '' };
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const k in (attrs || {})) {
+    const v = attrs[k];
+    if (k === 'class') e.className = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) {
+    if (c == null || c === false) continue;
+    e.append(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  return e;
+}
+
+const money = (n) => Number(n).toLocaleString('fr-FR').replace(/[  ]/g, ' ') + ' FCFA';
+const fmtDate = (d) => d.split('-').reverse().join('/');
+function today() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); }
+function addDays(n) { const d = new Date(today() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function daysBetween(a, b) { return Math.round((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 864e5); }
+const lateDays = (inv) => inv.status === 'pending' ? Math.max(0, daysBetween(today(), inv.due_date)) : 0;
+const dueIn = (inv) => daysBetween(inv.due_date, today());
+
+function getSettings() { try { return JSON.parse(localStorage.getItem('fp_settings')) || {}; } catch (e) { return {}; } }
+function saveSettings(s) { try { localStorage.setItem('fp_settings', JSON.stringify(s)); } catch (e) {} }
+
+function normPhone(p) {
+  let d = (p || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  else if (d.length <= 9) d = DEFAULT_COUNTRY_CODE + d.replace(/^0+/, '');
+  return d;
+}
+
+function buildMsg(inv, kind) {
+  const st = getSettings();
+  const amt = money(inv.amount), date = fmtDate(inv.due_date);
+  const desc = inv.description ? ' pour « ' + inv.description + ' »' : '';
+  const pay = st.momo ? ' Paiement par Orange Money ou MTN MoMo au ' + st.momo + '.' : '';
+  const sign = st.biz ? '\n' + st.biz : '';
+  const hi = 'Bonjour ' + inv.client_name + ', ';
+  const n = lateDays(inv);
+  if (kind === 'invoice') return hi + 'voici votre facture' + desc + ' : ' + amt + ', à régler avant le ' + date + '.' + pay + sign;
+  if (kind === 'soon') return hi + 'petit rappel : votre facture' + desc + ' de ' + amt + ' arrive à échéance le ' + date + '.' + pay + sign;
+  if (kind === 'soft') return hi + 'petit rappel : votre facture' + desc + ' de ' + amt + ' est encore en attente (échéance du ' + date + ').' + pay + ' Merci !' + sign;
+  if (kind === 'firm') return hi + 'votre facture' + desc + ' de ' + amt + ' est toujours impayée (échéance du ' + date + '). Merci de la régler dès que possible.' + pay + sign;
+  return hi + 'dernier rappel : votre facture' + desc + ' de ' + amt + ' est impayée depuis ' + n + ' jours. Merci de régler rapidement ou de nous contacter.' + pay + sign;
+}
+function reminderKind(inv) {
+  const n = lateDays(inv);
+  if (n === 0) return 'soon';
+  if (n < 7) return 'soft';
+  if (n < 14) return 'firm';
+  return 'last';
+}
+const KIND_LABEL = { soon: 'Rappel avant échéance', soft: 'Rappel doux', firm: 'Deuxième rappel', last: 'Dernier rappel' };
+
+function openWhatsApp(inv, kind) {
+  const phone = normPhone(inv.client_phone);
+  if (!phone) { S.error = "Ajoute le numéro WhatsApp de ce client pour lui envoyer le message."; render(); return; }
+  window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(buildMsg(inv, kind)), '_blank');
+}
+
+async function load() {
+  const { data, error } = await sb.from('invoices').select('*').order('due_date', { ascending: true });
+  if (error) { S.error = error.message; return; }
+  S.invoices = data || [];
+}
+async function markPaid(inv) {
+  const { error } = await sb.from('invoices').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', inv.id);
+  if (error) S.error = error.message; else S.error = '';
+  await load(); render();
+}
+async function removeInvoice(inv) {
+  if (!confirm('Supprimer la facture de ' + inv.client_name + ' ?')) return;
+  const { error } = await sb.from('invoices').delete().eq('id', inv.id);
+  if (error) S.error = error.message;
+  await load(); render();
+}
+function go(tab) { S.tab = tab; S.created = null; S.error = ''; S.info = ''; render(); }
+
+// ---------- Écrans ----------
+function viewAuth() {
+  const form = el('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const email = fd.get('email'), password = fd.get('password');
+    const mode = e.submitter ? e.submitter.value : 'in';
+    S.error = ''; S.info = '';
+    if (mode === 'up') {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) S.error = error.message;
+      else if (!data.session) S.info = 'Compte créé. Vérifie ton email pour confirmer, puis connecte-toi.';
+      else { S.user = data.session.user; await load(); }
+    } else {
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) S.error = 'Email ou mot de passe incorrect.';
+      else { S.user = data.session.user; await load(); }
+    }
+    render();
+  } },
+    el('div', { class: 'field' }, el('label', { for: 'em' }, 'Email'), el('input', { id: 'em', name: 'email', type: 'email', required: true, autocomplete: 'email' })),
+    el('div', { class: 'field' }, el('label', { for: 'pw' }, 'Mot de passe (6 caractères minimum)'), el('input', { id: 'pw', name: 'password', type: 'password', required: true, minlength: 6, autocomplete: 'current-password' })),
+    el('div', { class: 'row' },
+      el('button', { class: 'btn', type: 'submit', value: 'in' }, 'Se connecter'),
+      el('button', { class: 'btn alt', type: 'submit', value: 'up' }, 'Créer un compte'))
+  );
+  return el('main', {}, el('h1', {}, 'Bienvenue'), el('p', { class: 'muted' }, 'Fais tes factures et fais-toi payer plus vite.'),
+    S.error && el('div', { class: 'err' }, S.error), S.info && el('div', { class: 'ok' }, S.info), form);
+}
+
+function invoiceCard(inv) {
+  const n = lateDays(inv);
+  const chip = inv.status === 'paid' ? el('span', { class: 'chip paid' }, 'Payée')
+    : n > 0 ? el('span', { class: 'chip late' }, 'En retard · ' + n + ' j')
+    : el('span', { class: 'chip wait' }, 'En attente');
+  return el('div', { class: 'card' },
+    el('div', { class: 'row between' },
+      el('div', {}, el('div', { style: 'font-weight:700' }, inv.client_name), el('div', { class: 'muted' }, (inv.description || 'Facture') + ' · avant le ' + fmtDate(inv.due_date))),
+      el('div', { style: 'text-align:right;display:flex;flex-direction:column;gap:6px;align-items:flex-end' }, el('div', { style: 'font-weight:700' }, money(inv.amount)), chip)),
+    el('div', { class: 'row', style: 'margin-top:10px' },
+      inv.status === 'pending' && el('button', { class: 'btn small wa', onclick: () => openWhatsApp(inv, n > 0 ? reminderKind(inv) : 'invoice') }, n > 0 ? 'Relancer' : 'Envoyer WhatsApp'),
+      inv.status === 'pending' && el('button', { class: 'btn small alt', onclick: () => markPaid(inv) }, 'Marquer payée'),
+      el('button', { class: 'link', onclick: () => removeInvoice(inv) }, 'Supprimer')));
+}
+
+function viewHome() {
+  const now = today().slice(0, 7);
+  const paidMonth = S.invoices.filter((i) => i.status === 'paid' && (i.paid_at || '').slice(0, 7) === now).reduce((a, i) => a + Number(i.amount), 0);
+  const pend = S.invoices.filter((i) => i.status === 'pending' && lateDays(i) === 0).reduce((a, i) => a + Number(i.amount), 0);
+  const late = S.invoices.filter((i) => lateDays(i) > 0).reduce((a, i) => a + Number(i.amount), 0);
+  const list = S.invoices.filter((i) => S.filter === 'all' ? true : S.filter === 'paid' ? i.status === 'paid' : S.filter === 'late' ? lateDays(i) > 0 : (i.status === 'pending' && lateDays(i) === 0));
+  const F = (k, t) => el('button', { class: 'f' + (S.filter === k ? ' on' : ''), onclick: () => { S.filter = k; render(); } }, t);
+  return el('main', {},
+    S.error && el('div', { class: 'err' }, S.error),
+    el('div', { class: 'hero' }, el('div', {}, 'Encaissé ce mois-ci'), el('div', { class: 'big' }, money(paidMonth))),
+    el('div', { class: 'grid2' },
+      el('div', { class: 'card' }, el('div', { class: 'muted' }, 'En attente'), el('div', { class: 'num' }, money(pend))),
+      el('div', { class: 'card' }, el('div', { class: 'muted' }, 'En retard'), el('div', { class: 'num late' }, money(late)))),
+    el('h2', {}, 'Mes factures'),
+    el('div', { class: 'filters' }, F('all', 'Toutes'), F('wait', 'En attente'), F('late', 'En retard'), F('paid', 'Payées')),
+    list.length ? list.map(invoiceCard) : el('div', { class: 'card muted' }, 'Aucune facture ici. Crée ta première facture avec le bouton « Facture ».'));
+}
+
+function viewNew() {
+  if (S.created) {
+    const inv = S.created;
+    return el('main', {},
+      el('div', { class: 'ok' }, 'Facture enregistrée pour ' + inv.client_name + '.'),
+      el('h2', {}, 'Message prêt à envoyer'),
+      el('div', { class: 'preview' }, buildMsg(inv, 'invoice')),
+      el('button', { class: 'btn wa', onclick: () => openWhatsApp(inv, 'invoice') }, 'Envoyer sur WhatsApp'),
+      el('button', { class: 'btn alt', onclick: () => { S.created = null; go('home'); } }, 'Retour au tableau'));
+  }
+  const form = el('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const row = {
+      client_name: String(fd.get('client')).trim(),
+      client_phone: String(fd.get('phone')).trim(),
+      description: String(fd.get('desc')).trim(),
+      amount: Number(String(fd.get('amount')).replace(/\D/g, '')),
+      due_date: addDays(Number(fd.get('due')))
+    };
+    if (!row.client_name || !(row.amount > 0)) { S.error = 'Indique le client et un montant valide.'; render(); return; }
+    const { data, error } = await sb.from('invoices').insert(row).select().single();
+    if (error) { S.error = error.message; render(); return; }
+    S.error = ''; S.created = data; await load(); render();
+  } },
+    el('div', { class: 'field' }, el('label', { for: 'c' }, 'Client'), el('input', { id: 'c', name: 'client', required: true, placeholder: 'Ex : M. Tchoumi' })),
+    el('div', { class: 'field' }, el('label', { for: 'p' }, 'Numéro WhatsApp du client'), el('input', { id: 'p', name: 'phone', type: 'tel', inputmode: 'tel', placeholder: 'Ex : 6 70 00 00 00' })),
+    el('div', { class: 'field' }, el('label', { for: 'd' }, 'Description'), el('input', { id: 'd', name: 'desc', placeholder: 'Ex : Table de salon' })),
+    el('div', { class: 'field' }, el('label', { for: 'a' }, 'Montant (FCFA)'), el('input', { id: 'a', name: 'amount', inputmode: 'numeric', required: true, placeholder: 'Ex : 200000' })),
+    el('div', { class: 'field' }, el('label', { for: 'du' }, 'À payer sous'), el('select', { id: 'du', name: 'due' },
+      el('option', { value: '7' }, '7 jours'), el('option', { value: '15' }, '15 jours'), el('option', { value: '30' }, '30 jours'), el('option', { value: '3' }, '3 jours'))),
+    el('button', { class: 'btn', type: 'submit' }, 'Enregistrer la facture'));
+  return el('main', {}, el('h1', {}, 'Nouvelle facture'), S.error && el('div', { class: 'err' }, S.error), form);
+}
+
+function viewRelances() {
+  const list = S.invoices.filter((i) => i.status === 'pending' && (lateDays(i) > 0 || dueIn(i) <= 2))
+    .sort((a, b) => lateDays(b) - lateDays(a));
+  return el('main', {},
+    el('h1', {}, 'Relances'),
+    el('p', { class: 'muted' }, "Ces clients doivent être relancés aujourd'hui. Un clic ouvre WhatsApp avec le message déjà écrit."),
+    S.error && el('div', { class: 'err' }, S.error),
+    list.length ? list.map((inv) => {
+      const k = reminderKind(inv);
+      return el('div', { class: 'card', style: 'display:flex;flex-direction:column;gap:10px' },
+        el('div', { class: 'row between' }, el('b', {}, inv.client_name), el('span', { class: 'chip ' + (lateDays(inv) > 0 ? 'late' : 'wait') }, KIND_LABEL[k])),
+        el('div', { class: 'preview' }, buildMsg(inv, k)),
+        el('div', { class: 'row' },
+          el('button', { class: 'btn small wa', onclick: () => openWhatsApp(inv, k) }, 'Relancer sur WhatsApp'),
+          el('button', { class: 'btn small alt', onclick: () => markPaid(inv) }, 'Payée')));
+    }) : el('div', { class: 'card muted' }, 'Rien à relancer pour le moment. Bravo !'));
+}
+
+function viewSettings() {
+  const st = getSettings();
+  return el('main', {},
+    el('h1', {}, 'Réglages'),
+    S.info && el('div', { class: 'ok' }, S.info),
+    el('form', { class: 'card', onsubmit: (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      saveSettings({ biz: String(fd.get('biz')).trim(), momo: String(fd.get('momo')).trim() });
+      S.info = 'Réglages enregistrés.'; render();
+    } },
+      el('div', { class: 'field' }, el('label', { for: 'b' }, 'Nom de ton activité'), el('input', { id: 'b', name: 'biz', value: st.biz || '', placeholder: 'Ex : Menuiserie Fodouop' })),
+      el('div', { class: 'field' }, el('label', { for: 'm' }, 'Ton numéro Mobile Money (pour être payé)'), el('input', { id: 'm', name: 'momo', value: st.momo || '', type: 'tel', placeholder: 'Ex : 6 70 00 00 00' })),
+      el('button', { class: 'btn', type: 'submit' }, 'Enregistrer')),
+    el('div', { class: 'card muted' }, 'Connecté : ' + (S.user ? S.user.email : '')),
+    el('button', { class: 'btn alt', onclick: async () => { await sb.auth.signOut(); S.user = null; S.invoices = []; render(); } }, 'Se déconnecter'));
+}
+
+function render() {
+  $app.replaceChildren();
+  if (!configured) {
+    $app.append(el('main', {}, el('h1', {}, 'Configuration manquante'), el('div', { class: 'err' }, "Ouvre le fichier index.html et remplace SUPABASE_URL et SUPABASE_ANON_KEY (voir les instructions).")));
+    return;
+  }
+  $app.append(el('header', {}, el('span', { class: 'logo' }, 'FactuPro'), el('span', { class: 'muted' }, 'FCFA')));
+  if (!S.user) { $app.append(viewAuth()); return; }
+  const v = { home: viewHome, new: viewNew, relance: viewRelances, settings: viewSettings }[S.tab]();
+  $app.append(v);
+  const T = (k, t) => el('button', { class: S.tab === k ? 'on' : '', onclick: () => go(k) }, t);
+  $app.append(el('nav', {}, T('home', 'Tableau'), T('new', 'Facture'), T('relance', 'Relances'), T('settings', 'Réglages')));
+}
+
+(async function boot() {
+  if (configured) {
+    const { data } = await sb.auth.getSession();
+    S.user = data.session ? data.session.user : null;
+    if (S.user) await load();
+  }
+  render();
+})();
+</script>
+</body>
+</html>
